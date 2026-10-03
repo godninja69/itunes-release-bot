@@ -306,6 +306,15 @@ class iTunesMusicEngine:
         return names
 
     @classmethod
+    def _track_identity(cls, item: dict[str, Any]) -> tuple[str, str]:
+        """Return the key identifying one track across every collection it is on."""
+        credits = ",".join(
+            cls._normalise_text(name)
+            for name in cls._credit_names([item.get("artistName")])
+        )
+        return credits, cls._normalise_title(item.get("trackName"))
+
+    @classmethod
     def _credit_index(cls, artist_name: str, credits: list[str]) -> Optional[int]:
         """Return where the tracked artist sits in the credit list, or ``None``.
 
@@ -321,11 +330,23 @@ class iTunesMusicEngine:
         return None
 
     @staticmethod
-    def _is_various_artists(credits: Iterable[str]) -> bool:
-        """A store 'Various Artists' credit can never be a real collaboration."""
+    def _is_various_artists(
+        credits: Iterable[str], collection_artist: Any = None
+    ) -> bool:
+        """A store 'Various Artists' credit can never be a real collaboration.
+
+        On an ``entity=song`` lookup the track's own ``artistName`` names the act
+        the song is sold as, so the compilation that merely carries it is only
+        visible in ``collectionArtistName``. A track reaching the store again
+        through a brand-new compilation is not a new release, so that collection
+        credit is judged here alongside the track credits.
+        """
+        names = list(credits)
+        if collection_artist is not None:
+            names.append(str(collection_artist))
         return any(
-            iTunesMusicEngine._normalise_text(credit).startswith("variousartists")
-            for credit in credits
+            iTunesMusicEngine._normalise_text(name).startswith("variousartists")
+            for name in names
         )
 
     def _make_release(
@@ -338,6 +359,7 @@ class iTunesMusicEngine:
         release_type: Any,
         release_date: Any,
         url: Any,
+        collection_artist: Any = None,
     ) -> Optional[dict[str, Any]]:
         """Build one alert record, or ``None`` when the entry must be dropped."""
         title = str(name or "").strip()
@@ -352,7 +374,7 @@ class iTunesMusicEngine:
             or not release_day
             or not self._is_recent(release_day)
             or credit_index is None
-            or self._is_various_artists(credits)
+            or self._is_various_artists(credits, collection_artist)
             or self._looks_like_non_release(title)
         ):
             return None
@@ -551,6 +573,7 @@ class iTunesMusicEngine:
                 release_type=collection_type,
                 release_date=item.get("releaseDate"),
                 url=item.get("collectionViewUrl", ""),
+                collection_artist=item.get("collectionArtistName"),
             )
             if release:
                 releases.append(release)
@@ -564,6 +587,14 @@ class iTunesMusicEngine:
         Apple's lookup returns the track's lead act as ``artistName``, so a track
         whose lead act is not the tracked artist is a feature appearance and is
         reported as one.
+
+        This endpoint is per *collection*, not per track: it emits one row for
+        every collection a track appears on, and ``releaseDate`` is the date of
+        that collection rather than of the track. An old song re-packaged onto a
+        brand-new compilation therefore reports the compilation's date and looks
+        like a fresh release. Rows are collapsed to the earliest date each track
+        is listed under before anything is judged, because a re-package can only
+        be newer than the release it re-packages.
         """
         try:
             payload = self._get(
@@ -583,10 +614,22 @@ class iTunesMusicEngine:
         if not isinstance(results, list):
             return []
 
-        releases: list[dict[str, Any]] = []
+        earliest: dict[tuple[str, str], dict[str, Any]] = {}
         for item in results:
             if not isinstance(item, dict) or not item.get("trackId"):
                 continue
+            release_day = self._format_date(item.get("releaseDate"))
+            if not release_day:
+                continue
+            key = self._track_identity(item)
+            current = earliest.get(key)
+            if current is None or release_day < str(
+                current.get("releaseDate") or ""
+            )[:10]:
+                earliest[key] = item
+
+        releases: list[dict[str, Any]] = []
+        for item in earliest.values():
             release = self._make_release(
                 source_id=f"{ITUNES_PREFIX}{item.get('trackId', '')}",
                 artist_name=artist_name,
@@ -598,6 +641,7 @@ class iTunesMusicEngine:
                 release_type="single",
                 release_date=item.get("releaseDate"),
                 url=item.get("trackViewUrl", ""),
+                collection_artist=item.get("collectionArtistName"),
             )
             if release and release["is_feature"]:
                 releases.append(release)

@@ -193,8 +193,8 @@ def _is_recent_release(release: dict[str, Any]) -> bool:
     except ValueError:
         return False
     today = date.today()
-    lookback = _int_setting("RELEASE_LOOKBACK_DAYS", 5, 1)
-    return today - timedelta(days=lookback) <= released <= today
+    # The engine owns the lookback window, so both filters cannot drift apart.
+    return today - timedelta(days=music.recent_days) <= released <= today
 
 
 def _release_message(artist_name: str, release: dict[str, Any]) -> str:

@@ -95,6 +95,16 @@ A release is only reported when all of the following hold:
 
 - its day-precision release date falls within `RELEASE_LOOKBACK_DAYS` (default 5)
   and is not in the future;
+- it is not a re-packaging. The `entity=song` lookup is per *collection*: it
+  returns one row per collection a track appears on, and `releaseDate` is that
+  **collection's** date. An old track resurfacing on a brand-new compilation
+  therefore reports the new date, so rows are collapsed to the **earliest** date
+  each track is listed under — a re-package can only be newer than the release it
+  re-packages. A 2017 song reissued on a 2026 "best of" record is no longer
+  alerted;
+- neither the track credits nor the carrying collection are credited to
+  `Various Artists`, so a track reaching the store through a compilation is not
+  treated as a new release;
 - the tracked artist is credited exactly, compared on normalised names only —
   never a substring match;
 - the credit is a real credit, so nothing credited to `Various Artists` passes;
@@ -116,6 +126,8 @@ names who is actually featured rather than reporting a remix of their track.
   the five-day window.
 - Deduplication is by lead act + normalised title + release date, so the same
   single arriving through both the album and the song lookup produces one alert.
+- A track listed on several collections is reported once, against the earliest of
+  those dates, so a re-upload cannot re-date an old track into the window.
 
 ## Optional tuning
 
