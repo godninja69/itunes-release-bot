@@ -22,6 +22,7 @@ from datetime import date, datetime, timedelta
 from typing import Any, Callable
 from urllib.parse import urlsplit
 from dotenv import load_dotenv
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from telegram import Update
 from telegram.constants import ParseMode
 from telegram.error import TelegramError
@@ -45,6 +46,23 @@ logging.basicConfig(
 LOGGER = logging.getLogger(__name__)
 
 SCAN_JOB_NAME = "itunes-batch-scan"
+
+
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"iTunes Bot is running!")
+
+
+def start_health_server():
+    port = int(os.environ.get("PORT", 8080))
+    server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
+    server.serve_forever()
+
+
+# Launch HTTP health check server in background thread
+threading.Thread(target=start_health_server, daemon=True).start()
 
 # Alerts go to the bot administrator's own account, learned from the first
 # private /start and persisted, so no chat ID has to be configured.
