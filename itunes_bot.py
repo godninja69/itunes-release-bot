@@ -16,11 +16,12 @@ import html
 import json
 import logging
 import os
+import threading
 import re
 from datetime import date, datetime, timedelta
 from typing import Any, Callable
 from urllib.parse import urlsplit
-
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from dotenv import load_dotenv
 from telegram import Update
 from telegram.constants import ParseMode
@@ -45,6 +46,23 @@ logging.basicConfig(
 LOGGER = logging.getLogger(__name__)
 
 SCAN_JOB_NAME = "itunes-batch-scan"
+
+
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"iTunes Bot is running!")
+
+
+def start_health_server():
+    port = int(os.environ.get("PORT", 8080))
+    server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
+    server.serve_forever()
+
+
+# Launch HTTP health check server in background thread
+threading.Thread(target=start_health_server, daemon=True).start()
 
 # Alerts go to the bot administrator's own account, learned from the first
 # private /start and persisted, so no chat ID has to be configured.
@@ -216,7 +234,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if is_admin:
         note = "\n\n✅ <b>Alerts will be sent to this account.</b>"
     elif not admin_chat_id():
-        note = "\n\n⚠️ Send me a private <code>/start</code> so alerts have a destination."
+        note = (
+            "\n\n⚠️ Send me a private <code>/start</code> so alerts have a destination."
+        )
     else:
         note = "\n\nℹ️ Alerts already go to a different admin account."
     await update.message.reply_text(
@@ -242,7 +262,8 @@ async def show_id(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     destination = admin_chat_id()
     target = (
         f"your account <code>{destination}</code>"
-        if destination and update.effective_user
+        if destination
+        and update.effective_user
         and update.effective_user.id == destination
         else (
             f"admin account <code>{destination}</code>"
@@ -273,7 +294,9 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             status = str(info.get("status", "UNKNOWN")).upper()
             details = str(info.get("details", info.get("log", "No details provided")))
             icon = {"ONLINE": "🟢", "WARNING": "🟡"}.get(status, "🔴")
-            lines.append(f"{icon} <b>{_escape(service)}</b>: <code>{_escape(status)}</code>")
+            lines.append(
+                f"{icon} <b>{_escape(service)}</b>: <code>{_escape(status)}</code>"
+            )
             lines.append(f"┗ <i>Log:</i> {_escape(details[:400])}")
             lines.append("")
 
@@ -423,7 +446,9 @@ async def add_artist(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             parse_mode=ParseMode.HTML,
         )
         return
-    await _track_artist(update.message, _owner_id(update), " ".join(context.args).strip())
+    await _track_artist(
+        update.message, _owner_id(update), " ".join(context.args).strip()
+    )
 
 
 async def bulk_add(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
